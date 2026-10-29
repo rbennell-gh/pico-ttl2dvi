@@ -27,9 +27,16 @@ static void build_blut(void)
     blut_ready = true;
 }
 
+// 4-bit samples: the palette is the source's (RGBI, or the Electron's RGB).
+static const uint8_t *rgb4_map(void)
+{
+    return source_active()->palette == PALETTE_RGB3 ? video_rgb3_rgb222()
+                                                    : video_cga_rgb222();
+}
+
 static void build_clut(void)
 {
-    const uint8_t *rgb = video_cga_rgb222();
+    const uint8_t *rgb = rgb4_map();
     for (uint b = 0; b < 256; b++)
         clut[b] = (uint16_t)(rgb[b & 15] | rgb[b >> 4] << 8);
     clut_ready = true;
@@ -95,7 +102,8 @@ void __not_in_flash_func(view_render)(void)
     const uint src_h = capture_height();
     if (!src_w || !src_h) return;
 
-    const uint bits = source_active()->data_bits;       // 2 MDA, 4 RGBI, 6 EGA
+    // Stored sample width: 2 MDA, 4 RGBI or Electron RGB + pad bit, 6 EGA.
+    const uint bits = capture_sample_bits();
     const bool mono = bits == 2;
     if (mono && !blut_ready)       build_blut();
     if (bits == 4 && !clut_ready)  build_clut();
@@ -105,7 +113,7 @@ void __not_in_flash_func(view_render)(void)
     const uint fb_words = video_fb_words();
     const uint bpp      = video_fb_bpp();
     const uint ppw      = 32u / bpp;                    // fb pixels per word
-    const uint8_t *map  = mono ? level : bits == 4 ? video_cga_rgb222()
+    const uint8_t *map  = mono ? level : bits == 4 ? rgb4_map()
                                                    : video_ega_rgb222();
     const int  lines    = (int)video_lines();
     const int  vs       = (int)g_vscale;

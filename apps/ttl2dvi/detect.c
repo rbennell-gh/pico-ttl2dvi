@@ -56,7 +56,9 @@ static uint64_t s_none_since, s_last_try;
 
 void auto_poll(uint32_t line)
 {
-    if (!source_auto()) return;
+    // A composite-sync source is chosen by hand and never switched away from:
+    // see source_candidates().
+    if (!source_auto() || source_active()->csync) return;
 
     signal_info_t si;
     signal_get(&si);

@@ -21,6 +21,7 @@ bool capture_set_dot_hz(uint dot_hz);
 uint capture_dot_hz(void);
 uint capture_oversample(void);                   // samples per pixel: 1 or 2, chosen from the ratio
 
+uint capture_sample_bits(void);                  // bits per stored sample (data + padding)
 uint capture_px_cyc(void);                       // sysclk per pixel, rounded
 uint capture_sample_cyc(void);                   // sysclk per sample
 uint32_t capture_spp(void);                      // samples per pixel, 16.16

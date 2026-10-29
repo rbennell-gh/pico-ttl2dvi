@@ -14,7 +14,7 @@
 // Bump FORMAT_VER whenever the layout changes: a stored page with another
 // version is ignored rather than misread.
 #define MAGIC        0x53544c54u   // "TLTS"
-#define FORMAT_VER   2u
+#define FORMAT_VER   3u            // 3: SOURCE_GROUPS 5 -> 6 (Electron)
 #define FLASH_OFS    (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE)
 #define NO_DEFAULT   0xffu
 

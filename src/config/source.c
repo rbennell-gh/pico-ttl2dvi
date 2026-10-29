@@ -87,6 +87,34 @@ static const source_mode_t ega_v200 = {
     .hsync_hz   = 15809,
 };
 
+// Acorn Electron, 6-pin DIN RGB: TTL R, G, B and one active-low composite
+// sync. Measured on a real machine (see the project log):
+//   line 64.02 us (15621 Hz), sync low 3.95 us, picture 640 px x 256 lines,
+//   first pixel 16.02 us after the sync falling edge (256 dot clocks), so
+//   bp = 256 - 63 px of (inverted) sync pulse = 193. Vertical sync is one
+//   ~160 us low pulse with no serrations; the fields alternate its position
+//   by half a line (interlaced timing, same picture in both).
+// 16.000 MHz: 256 MHz = 16 sysclk per pixel. GP20-22 are sampled and a zero
+// bit is shifted in after them, so samples use the 4-bit RGBI layout without
+// touching GP23 (the Pico 2's SMPS mode pin). def_phase is an estimate: run
+// `tune apply`, then save a slot.
+static const source_mode_t src_electron = {
+    .id         = SRC_ID_ELECTRON,
+    .name       = "Electron",
+    .sysclk_khz = 256000,
+    .active_w   = 640,
+    .data_base  = 20,        // R, G, B
+    .data_bits  = 3,
+    .pad_bits   = 1,
+    .dot_hz     = 16000000,
+    .def_bp     = 193,
+    .def_phase  = 5,
+    .def_vscale = 1,
+    .hsync_hz   = 15625,
+    .csync      = true,
+    .palette    = PALETTE_RGB3,
+};
+
 static const source_mode_t *const ega_variants[] = { &ega_v350, &ega_v200 };
 #define EGA_VARIANTS (sizeof ega_variants / sizeof ega_variants[0])
 
@@ -99,6 +127,7 @@ static const source_mode_t *const sources[] = {
     &src_cga,
     &src_c128,
     &s_ega,
+    &src_electron,
 };
 #define SOURCE_COUNT (sizeof sources / sizeof sources[0])
 
@@ -196,14 +225,21 @@ void source_ega_select(uint variant)
 }
 
 // Settings groups: one per source, EGA split by family (variant order: 350, 200).
+// EGA takes groups 3 and 4, so the Electron (source index 4) is group 5.
+#define GROUP_ELECTRON 5u
+
 uint source_group(void)
 {
-    return sources[g_active] == &s_ega ? g_active + s_ega_var : g_active;
+    if (sources[g_active] == &s_ega)         return g_active + s_ega_var;
+    if (sources[g_active] == &src_electron)  return GROUP_ELECTRON;
+    return g_active;
 }
 
 const char *source_group_name(uint g)
 {
-    static const char *const names[SOURCE_GROUPS] = { "MDA16", "CGA", "C128", "EGA 350", "EGA 200" };
+    static const char *const names[SOURCE_GROUPS] = {
+        "MDA16", "CGA", "C128", "EGA 350", "EGA 200", "Electron"
+    };
     return g < SOURCE_GROUPS ? names[g] : "?";
 }
 
@@ -214,6 +250,7 @@ uint source_candidates(uint32_t hsync_hz, source_cand_t *out, uint max)
 {
     uint n = 0;
     for (uint i = 0; i < SOURCE_COUNT; i++) {
+        if (sources[i]->csync) continue;          // see source.h
         const bool ega = sources[i] == &s_ega;
         const uint k = ega ? EGA_VARIANTS : 1u;
         for (uint v = 0; v < k && n < max; v++) {

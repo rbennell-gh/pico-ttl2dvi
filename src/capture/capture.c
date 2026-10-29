@@ -23,6 +23,7 @@ static uint g_dot_hz, g_oversample;
 static uint g_px_cyc, g_cyc;              // sysclk per pixel (rounded), per sample
 static uint32_t g_spp;                    // samples per pixel, 16.16
 static uint g_bits, g_spw;                // bits/sample, samples/word
+static uint g_in_bits, g_pad;             // of g_bits: pins read, zeros shifted in
 static uint g_shift;                      // bit of the first sample in a word
 static uint g_active_w;
 static uint g_lines, g_samples_per_line, g_words_per_line, g_delay;
@@ -74,21 +75,34 @@ void capture_set_phase(int phase)
 
 int capture_get_phase(void) { return g_phase; }
 
-// Rewrite the two-instruction sample loop for this source's bit count and
-// sample period, split across both delay slots. instr_mem is write-only.
+// Rewrite the sample loop for this source's bit count and sample period, split
+// across the delay slots. instr_mem is write-only. Without padding it is the
+// original two-instruction loop (the third slot, a nop, only runs once the
+// line is done). With padding, `in null, pad` sits between the read and the
+// jump, so the loop is three instructions and the delays are cyc - 3.
 static void patch_sample_loop(void)
 {
     uint at = prog_off + capture_offset_sample;
-    pio->instr_mem[at]     = pio_encode_in(pio_pins, g_bits)
-                           | pio_encode_delay((g_cyc + 1) / 2 - 1);
-    pio->instr_mem[at + 1] = pio_encode_jmp_x_dec(at)
-                           | pio_encode_delay(g_cyc / 2 - 1);
+    if (!g_pad) {
+        pio->instr_mem[at]     = pio_encode_in(pio_pins, g_in_bits)
+                               | pio_encode_delay((g_cyc + 1) / 2 - 1);
+        pio->instr_mem[at + 1] = pio_encode_jmp_x_dec(at)
+                               | pio_encode_delay(g_cyc / 2 - 1);
+        pio->instr_mem[at + 2] = pio_encode_nop();
+    } else {
+        const uint d = g_cyc - 3u;
+        pio->instr_mem[at]     = pio_encode_in(pio_pins, g_in_bits)
+                               | pio_encode_delay((d + 1u) / 2u);
+        pio->instr_mem[at + 1] = pio_encode_in(pio_null, g_pad);
+        pio->instr_mem[at + 2] = pio_encode_jmp_x_dec(at)
+                               | pio_encode_delay(d / 2u);
+    }
 }
 
 // px_cyc: whole-pixel unit for bp and phase. cyc: the sample period the loop
 // can hit exactly. spp from the unrounded ratio, so the view tracks the true
 // pixel rate across the line. False if the loop can't run that period (two
-// 5-bit delay slots: 2..64 sysclk).
+// 5-bit delay slots: 2..64 sysclk; 3..65 with the padding instruction).
 //
 // 1x slips a whole pixel every 0.5 / |px / round(px) - 1| pixels; if that lands
 // inside the captured width, sample at 2x instead. Not at 6 bits: rawbuf can't
@@ -107,7 +121,7 @@ static bool rate_for(uint dot_hz, rate_t *r)
     r->cyc    = (uint)(px / (float)r->os + 0.5f);
     r->px_cyc = (uint)(px + 0.5f);
     r->spp    = (uint32_t)(px / (float)r->cyc * 65536.0f + 0.5f);
-    return r->cyc >= 2 && r->cyc <= 64;
+    return g_pad ? (r->cyc >= 3 && r->cyc <= 65) : (r->cyc >= 2 && r->cyc <= 64);
 }
 
 static bool derive_rate(uint dot_hz)
@@ -122,13 +136,16 @@ static bool derive_rate(uint dot_hz)
     return true;
 }
 
-// Data pins and sample width. The SM must be stopped; patch_sample_loop()
-// must follow, since the loop's `in pins, N` carries the width.
-static void set_pins(uint base, uint bits)
+// Data pins and sample width: `bits` pins read, then `pad` zero bits, for a
+// sample of bits + pad. The SM must be stopped; patch_sample_loop() must
+// follow, since the loop carries the widths.
+static void set_pins(uint base, uint bits, uint pad)
 {
-    g_bits  = bits;
-    g_spw   = 32u / bits;
-    g_shift = 32u - g_spw * bits;
+    g_in_bits = bits;
+    g_pad     = pad;
+    g_bits    = bits + pad;
+    g_spw     = 32u / g_bits;
+    g_shift   = 32u - g_spw * g_bits;
 
     for (uint i = 0; i < bits; i++)
         pio_gpio_init(pio, base + i);
@@ -138,10 +155,12 @@ static void set_pins(uint base, uint bits)
     sm_config_set_in_pins(&c, base);
     // Right shift, autopush at a whole number of samples: 32 bits, or 30 at
     // 6 bits, which leaves the samples in the top 30 bits of each word.
-    sm_config_set_in_shift(&c, true, true, g_spw * bits);
+    sm_config_set_in_shift(&c, true, true, g_spw * g_bits);
     sm_config_set_clkdiv(&c, PIO_CLKDIV);
     pio_sm_init(pio, sm, prog_off, &c);               // left disabled
 }
+
+uint capture_sample_bits(void) { return g_bits; }
 
 // Everything that depends on the active source. The SM must be stopped.
 static void apply_source(void)
@@ -149,7 +168,7 @@ static void apply_source(void)
     const source_mode_t *src = source_active();
 
     g_active_w = src->active_w;
-    set_pins(src->data_base, src->data_bits);
+    set_pins(src->data_base, src->data_bits, src->pad_bits);
     derive_rate(src->dot_hz);
     g_bp       = (uint)src->def_bp;
     g_phase    = (uint)src->def_phase;
@@ -339,7 +358,7 @@ static bool fast_grab(uint skip, uint base, uint bits, fast_t *f)
 
     const uint cyc = g_cyc, phase = g_phase;
     const uint32_t spp = g_spp;
-    set_pins(base, bits);
+    set_pins(base, bits, 0);                          // raw pins, no padding
     g_cyc   = FAST_CYC;
     g_spp   = (uint32_t)(((uint64_t)spp * cyc) / FAST_CYC);
     g_phase = 0;
@@ -368,7 +387,7 @@ static bool fast_grab(uint skip, uint base, uint bits, fast_t *f)
     f->spw     = g_spw;
     f->shift   = g_shift;
 
-    set_pins(src->data_base, src->data_bits);
+    set_pins(src->data_base, src->data_bits, src->pad_bits);
     g_cyc = cyc;
     g_spp = spp;
     g_phase = phase;

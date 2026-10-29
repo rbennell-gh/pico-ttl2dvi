@@ -20,7 +20,7 @@ void video_preselect_mode(uint i);
 
 // LSB = leftmost pixel. Depth is per mode:
 //   2bpp: 0..3 = the four fixed greys in tmds_encode_2bpp (MDA)
-//   8bpp: RGB222, R 5:4, G 3:2, B 1:0 (CGA, C128)
+//   8bpp: RGB222, R 5:4, G 3:2, B 1:0 (CGA, C128, EGA, Electron)
 // The framebuffer holds up to video_fb_rows() stored rows, one per source line.
 // core0 writes while core1 reads: no double buffer (for now)
 uint32_t *video_fb(void);
@@ -53,6 +53,10 @@ bool video_osd_hold(void);
 // RGBI sample (I | R<<1 | G<<2 | B<<3) -> RGB222 byte, 16 entries.
 // Used by every 4-bit RGBI source (CGA, C128).
 const uint8_t *video_cga_rgb222(void);
+
+// Electron 4-bit sample (R | G<<1 | B<<2, bit 3 is capture padding) -> RGB222,
+// 16 entries: the eight full-intensity colours.
+const uint8_t *video_rgb3_rgb222(void);
 
 // EGA 6-bit sample (sB | sG<<1 | R<<2 | G<<3 | B<<4 | sR<<5) -> RGB222, 64 entries.
 const uint8_t *video_ega_rgb222(void);

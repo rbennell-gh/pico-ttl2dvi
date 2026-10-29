@@ -24,4 +24,11 @@ delay:
 public sample:
     in pins, 2      [7]     ; patched: in pins, data_bits; autopush @32
     jmp x-- sample  [7]     ; patched: delays sum to the sample period
+    nop                     ; patched: see below
 .wrap
+
+; Two loop shapes, written by capture.c patch_sample_loop():
+;   no padding:  in pins, n [d1] / jmp x-- sample [d2] / nop
+;                (the nop only runs once x is spent: the line is done)
+;   padding p:   in pins, n [d1] / in null, p / jmp x-- sample [d2]
+;                (a 3-line source still fills 4-bit samples)

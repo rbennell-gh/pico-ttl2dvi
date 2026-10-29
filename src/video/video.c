@@ -101,6 +101,11 @@ static const video_mode_t c128_modes[] = {
     { "640x480@60", &dvi_timing_640x480p_60hz_256, 8 },
 };
 
+// Electron: 256 MHz like the C128. 640x480 for now (Phase 2); 720x576@50 to come.
+static const video_mode_t electron_modes[] = {
+    { "640x480@60", &dvi_timing_640x480p_60hz_256, 8 },
+};
+
 static const video_mode_t ega_modes[] = {
     { "640x480@60", &dvi_timing_640x480p_60hz_266, 8 },
 };
@@ -118,6 +123,7 @@ static const mode_set_t mode_sets[] = {
     { SRC_ID_CGA,    MODES(cga_modes),    0 },
     { SRC_ID_C128,   MODES(c128_modes),   0 },
     { SRC_ID_EGA,    MODES(ega_modes),    0 },
+    { SRC_ID_ELECTRON, MODES(electron_modes), 0 },
 };
 
 // scratch[4] is off limits: watchdog_reboot() clears it.
@@ -148,6 +154,7 @@ static volatile uint32_t g_vmap;
 
 static uint8_t cga_rgb222[16];
 static uint8_t ega_rgb222[64];
+static uint8_t rgb3_rgb222[16];
 
 static struct dvi_inst dvi0;
 static const mode_set_t *g_set = &mode_sets[0];
@@ -162,6 +169,7 @@ uint video_fb_bpp(void)     { return g_bpp; }
 uint video_lines(void)      { return g_lines; }
 const uint8_t *video_cga_rgb222(void) { return cga_rgb222; }
 const uint8_t *video_ega_rgb222(void) { return ega_rgb222; }
+const uint8_t *video_rgb3_rgb222(void) { return rgb3_rgb222; }
 
 void video_set_vmap(uint first, uint rep, uint n)
 {
@@ -323,6 +331,16 @@ static void build_cga_rgb222(void)
     }
 }
 
+// Sample R | G<<1 | B<<2 (bit 3 = capture padding, ignored) -> RGB222. One
+// TTL line per primary, so each channel is off or full.
+static void build_rgb3_rgb222(void)
+{
+    for (uint i = 0; i < 16; i++) {
+        uint r = (i & 1) ? 3u : 0u, g = (i & 2) ? 3u : 0u, b = (i & 4) ? 3u : 0u;
+        rgb3_rgb222[i] = (uint8_t)((r << R_LSB) | (g << G_LSB) | (b << B_LSB));
+    }
+}
+
 // Sample sB | sG<<1 | R<<2 | G<<3 | B<<4 | sR<<5 -> RGB222. Each channel's level
 // is (primary << 1) | secondary: EGA's 4 levels, lossless.
 static void build_ega_rgb222(void)
@@ -434,6 +452,7 @@ void video_init(void)
 
     build_cga_rgb222();
     build_ega_rgb222();
+    build_rgb3_rgb222();
     osd_init();
 
 #if PICO_PIO_USE_GPIO_BASE

@@ -9,6 +9,11 @@
 #define SRC_ID_CGA     3
 #define SRC_ID_C128    4
 #define SRC_ID_EGA     5
+#define SRC_ID_ELECTRON 6
+
+// How a 4-bit sample maps to colour (view.c).
+#define PALETTE_RGBI     0   // I | R<<1 | G<<2 | B<<3 (CGA, C128)
+#define PALETTE_RGB3     1   // R | G<<1 | B<<2, bit 3 unused (Acorn Electron)
 
 typedef struct {
     uint8_t     id;
@@ -16,13 +21,19 @@ typedef struct {
     uint        sysclk_khz;
     uint        active_w;    // visible pixels per line
     uint        data_base;   // first data GPIO
-    uint        data_bits;   // data lines sampled: 2, 4 or 6
+    uint        data_bits;   // data lines sampled: 2, 3, 4 or 6
+    uint        pad_bits;    // zero bits shifted in after the data lines, so
+                             // a 3-line source fills the 4-bit sample format
     uint        dot_hz;      // pixel clock
     int         def_bp;
     int         def_phase;
     uint        def_vscale;  // display lines per source line
     uint        hsync_hz;    // expected line rate: detection, and frames at
                              // another rate aren't rendered
+    bool        csync;       // one active-low composite sync on PIN_HSYNC:
+                             // sync.c inverts it and drives a separated
+                             // VSYNC on PIN_VSYNC (nothing else may drive it)
+    uint8_t     palette;     // PALETTE_* for 4-bit samples
 } source_mode_t;
 
 // Call first in main(), before the overclock. The source and auto flag come
@@ -41,8 +52,8 @@ void source_store(uint i);          // as source_select, without the reboot
 
 // Settings groups (src/settings): each source, with EGA's two families
 // separate, since they need different tuning: 0 MDA16, 1 CGA, 2 C128,
-// 3 EGA 350, 4 EGA 200.
-#define SOURCE_GROUPS 5
+// 3 EGA 350, 4 EGA 200, 5 Electron.
+#define SOURCE_GROUPS 6
 uint source_group(void);
 const char *source_group_name(uint g);
 
@@ -65,7 +76,10 @@ void source_ega_select(uint variant);
 bool source_line_ok(uint32_t line_cycles);
 
 // Sources whose line rate is within 3% of hsync_hz; EGA's two families are
-// listed separately (same index, different mode). Returns how many.
+// listed separately (same index, different mode). Composite-sync sources are
+// never candidates: without their separator running there is no VSYNC to
+// measure with, and the Electron's line rate and dot clock overlap the C128's.
+// Returns how many.
 typedef struct {
     uint                 index;     // for source_get() / source_select()
     const source_mode_t *mode;      // the variant, for EGA

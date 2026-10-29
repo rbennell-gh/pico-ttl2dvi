@@ -13,6 +13,8 @@ add_library(ttl2dvi_core STATIC
 # PIO headers: sync-period countdown (HSYNC/VSYNC measure) + the 2bpp sampler.
 pico_generate_pio_header(ttl2dvi_core ${CMAKE_CURRENT_LIST_DIR}/capture/sync_period.pio)
 pico_generate_pio_header(ttl2dvi_core ${CMAKE_CURRENT_LIST_DIR}/capture/capture.pio)
+# Composite sync separator (Electron): long CSYNC pulse -> VSYNC on PIN_VSYNC.
+pico_generate_pio_header(ttl2dvi_core ${CMAKE_CURRENT_LIST_DIR}/capture/csync_sep.pio)
 pico_generate_pio_header(ttl2dvi_core ${CMAKE_CURRENT_LIST_DIR}/ir/ir_nec.pio)
 
 target_include_directories(ttl2dvi_core PUBLIC

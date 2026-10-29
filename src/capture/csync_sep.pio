@@ -1,0 +1,29 @@
+; Composite sync separator, for sources with one CSYNC line (Acorn Electron).
+;
+; The CSYNC pad is inverted (gpio_set_inover in sync.c), so here sync pulses
+; read HIGH, the way capture and the sync measurement expect HSYNC. A line
+; sync is ~4 us; the vertical sync is one long pulse (~160 us on the Electron,
+; no serrations). Output: a PC-style VSYNC pulse, high from THRESHOLD into a
+; long pulse until that pulse ends. capture.c starts a frame on VSYNC's
+; falling edge, so every frame starts at the end of the vertical sync, in both
+; fields of an interlaced source.
+;
+; in pin 0 and jmp pin = CSYNC (PIN_HSYNC), set pin = VSYNC (PIN_VSYNC).
+; The CPU pushes the threshold once, in 2-sysclk counts.
+
+.program csync_sep
+    pull block              ; threshold count
+.wrap_target
+top:
+    set pins, 0
+    wait 0 pin 0
+    wait 1 pin 0            ; a sync pulse starts
+    mov x, osr
+count:
+    jmp pin, high           ; still in the pulse?
+    jmp top                 ; ended before the threshold: a line sync
+high:
+    jmp x-- count           ; 2 sysclk per count
+    set pins, 1             ; still high: vertical sync
+    wait 0 pin 0            ; VSYNC falls as the vertical pulse ends
+.wrap
