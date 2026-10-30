@@ -30,6 +30,29 @@ static const struct dvi_timing dvi_timing_720x576p_50hz = {
     .bit_clk_khz     = 256000
 };
 
+// The same 720x576, totals moved to land closer to the Acorn Electron's field
+// rate, so the output drops or repeats a frame less often: 822 x 623 at
+// 25.6 MHz = 49.990 Hz against the Electron's measured 49.988 (one frame every
+// ~9 minutes, though the two crystals' tolerances can make it sooner or
+// later); 820 x 625 = 49.951 slips a frame every ~27 s. Totals must stay even:
+// libdvi sends two symbols per word and halves each horizontal period. Two
+// lines fewer than CEA-861's 625, taken from the back porch.
+static const struct dvi_timing dvi_timing_720x576p_50hz_elk = {
+    .h_sync_polarity = false,
+    .h_front_porch   = 12,
+    .h_sync_width    = 64,
+    .h_back_porch    = 26,
+    .h_active_pixels = 720,
+
+    .v_sync_polarity = false,
+    .v_front_porch   = 5,
+    .v_sync_width    = 5,
+    .v_back_porch    = 37,
+    .v_active_lines  = 576,
+
+    .bit_clk_khz     = 256000
+};
+
 // VESA 640x480 vertical; htotal 820 instead of 800 so 25.8 MHz lands on ~60 Hz.
 static const struct dvi_timing dvi_timing_640x480p_60hz_258 = {
     .h_sync_polarity = false,
@@ -101,9 +124,16 @@ static const video_mode_t c128_modes[] = {
     { "640x480@60", &dvi_timing_640x480p_60hz_256, 8 },
 };
 
-// Electron: 256 MHz like the C128. 640x480 for now (Phase 2); 720x576@50 to come.
+// Electron: 256 MHz like the C128. 720x576@50 is the default: 50 Hz is close
+// to the Electron's 49.99 (60 Hz repeats one frame in five), and 640x256 at
+// vscale 2 sits in a 40 px / 32 line border, which survives TV overscan (an
+// LG M197WDP crops ~13-16 px per side of 640x480 and offers no Just Scan
+// below 720p). @49.99 trades CEA-861's 625 lines for fewer dropped frames
+// (see its timing). 640x480 stays index 0 so saved slots keep their meaning.
 static const video_mode_t electron_modes[] = {
-    { "640x480@60", &dvi_timing_640x480p_60hz_256, 8 },
+    { "640x480@60",    &dvi_timing_640x480p_60hz_256, 8 },
+    { "720x576@50",    &dvi_timing_720x576p_50hz,     8 },
+    { "720x576@49.99", &dvi_timing_720x576p_50hz_elk, 8 },
 };
 
 static const video_mode_t ega_modes[] = {
@@ -123,7 +153,7 @@ static const mode_set_t mode_sets[] = {
     { SRC_ID_CGA,    MODES(cga_modes),    0 },
     { SRC_ID_C128,   MODES(c128_modes),   0 },
     { SRC_ID_EGA,    MODES(ega_modes),    0 },
-    { SRC_ID_ELECTRON, MODES(electron_modes), 0 },
+    { SRC_ID_ELECTRON, MODES(electron_modes), 1 },
 };
 
 // scratch[4] is off limits: watchdog_reboot() clears it.

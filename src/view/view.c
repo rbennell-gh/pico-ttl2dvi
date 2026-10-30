@@ -143,9 +143,13 @@ void __not_in_flash_func(view_render)(void)
     const uint samples = capture_samples();
     const bool one     = capture_oversample() == 1;
     const uint spb     = 8u / bits;                      // source pixels per byte
-    const bool fast    = one && bits != 6 && h_border <= 0
-                         && ((-h_border) % (int)spb) == 0
-                         && (uint)(-h_border) + fb_w <= samples;
+    // Fast byte path: any border or crop that keeps source pixels whole bytes
+    // (h_border a multiple of spb). Words wholly inside the picture take the
+    // byte lookups; words at or past its edges (a border, e.g. the Electron's
+    // 640 centred in 720) take resample_word, which blacks them.
+    const int  fast_lim = (int)(src_w < samples ? src_w : samples);
+    const bool fast    = one && bits != 6
+                         && ((h_border % (int)spb) + (int)spb) % (int)spb == 0;
     const bool word5   = one && bits == 6 && h_border == 0 && fb_w <= samples
                          && fb_words % 5 == 0;
 
@@ -224,17 +228,21 @@ void __not_in_flash_func(view_render)(void)
             continue;
         }
         if (fast) {
-            const uint8_t *b = capture_raw_line(line) + (uint)(-h_border) / spb;
-            if (mono) {
-                for (uint w = 0; w < fb_words; w++, b += 4)
-                    fb_line[w] = (uint32_t)blut[b[0]]
-                               | (uint32_t)blut[b[1]] << 8
-                               | (uint32_t)blut[b[2]] << 16
-                               | (uint32_t)blut[b[3]] << 24;
-            } else {
-                for (uint w = 0; w < fb_words; w++, b += 2)
-                    fb_line[w] = (uint32_t)clut[b[0]]
-                               | (uint32_t)clut[b[1]] << 16;
+            const uint8_t  *raw8 = capture_raw_line(line);
+            const uint32_t *raw  = (const uint32_t *)raw8;
+            for (uint w = 0; w < fb_words; w++) {
+                const int k = (int)(w * ppw) - h_border;     // first source px
+                if (k < 0 || k + (int)ppw > fast_lim) {
+                    fb_line[w] = resample_word(&rs, raw, w);
+                    continue;
+                }
+                const uint8_t *b = raw8 + (uint)k / spb;
+                fb_line[w] = mono ? (uint32_t)blut[b[0]]
+                                  | (uint32_t)blut[b[1]] << 8
+                                  | (uint32_t)blut[b[2]] << 16
+                                  | (uint32_t)blut[b[3]] << 24
+                                  : (uint32_t)clut[b[0]]
+                                  | (uint32_t)clut[b[1]] << 16;
             }
             continue;
         }
