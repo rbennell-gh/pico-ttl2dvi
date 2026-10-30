@@ -96,8 +96,13 @@ static const source_mode_t ega_v200 = {
 //   by half a line (interlaced timing, same picture in both).
 // 16.000 MHz: 256 MHz = 16 sysclk per pixel. GP20-22 are sampled and a zero
 // bit is shifted in after them, so samples use the 4-bit RGBI layout without
-// touching GP23 (the Pico 2's SMPS mode pin). def_phase is an estimate: run
-// `tune apply`, then save a slot.
+// touching GP23 (the Pico 2's SMPS mode pin).
+// def_phase 15 was found by sweep on one board (SN74LVC245 buffer,
+// breadboard): black/white detail (PIXELS V) is clean at phases 10-15, but colour
+// changes where one channel falls as another rises (MODE 2 magenta->cyan)
+// only at 14-15. `tune` measures black/white edges alone and picks 13, which
+// shows a noisy column on those boundaries: check colour bars after a
+// `tune apply`.
 static const source_mode_t src_electron = {
     .id         = SRC_ID_ELECTRON,
     .name       = "Electron",
@@ -108,7 +113,7 @@ static const source_mode_t src_electron = {
     .pad_bits   = 1,
     .dot_hz     = 16000000,
     .def_bp     = 193,
-    .def_phase  = 5,
+    .def_phase  = 15,
     .def_vscale = 1,
     .hsync_hz   = 15625,
     .csync      = true,
